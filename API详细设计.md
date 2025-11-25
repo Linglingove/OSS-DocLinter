@@ -4,9 +4,9 @@
 
 ### 1.1 分析仓库文档
 
-**Endpoint:**`POST /api/v1/analyze`
+**Endpoint:** `POST /api/v1/analyze`
 
-**描述:**应用主入口，后端并行获取文档、运行Linter和LLM分析，返回文档的原始内容给前端暂存。
+**描述:** 应用主入口，后端并行获取文档、运行Linter和LLM分析，返回文档的原始内容给前端暂存
 
 **Request Body:**
 
