@@ -243,3 +243,102 @@ class LLMService:
                                 "score_deduction": dimension.get("max_score", 0) - dimension.get("score", 0) })
         return { "overall_score": overall_score, "issues": issues, "raw_analysis": analysis }
     
+    async def generate_fix(
+        self,
+        original_content: str,
+        issue_id: str,
+        issue_description: str,
+        custom_instruction: Optional[str] = None
+    ) -> str:
+        """
+        根据问题生成修复后的完整文档
+        
+        Args:
+            original_content: 原始文档内容
+            issue_id: 问题ID (如 missing_install)
+            issue_description: 问题描述
+            custom_instruction: 用户自定义指令
+        
+        Returns:
+            修复后的完整文档内容
+        """
+        prompt = self._build_fix_prompt(
+            original_content,
+            issue_id,
+            issue_description,
+            custom_instruction
+        )
+        
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                resp = await client.post(
+                    f"{self.base_url}/chat/completions",
+                    headers=self.headers,
+                    json={
+                        "model": self.model,
+                        "messages": [
+                            {
+                                "role": "system",
+                                "content": "你是一个专业的开源项目文档专家。你的任务是根据用户提供的问题，修复并完善文档。请直接返回修复后的完整 Markdown 文档，不要添加任何解释或代码块标记。"
+                            },
+                            {
+                                "role": "user",
+                                "content": prompt
+                            }
+                        ],
+                        "temperature": 0.3
+                    }
+                )
+                
+                if resp.status_code != 200:
+                    raise HTTPException(status_code=502, detail="LLM API error")
+                
+                data = resp.json()
+                fixed_content = data["choices"][0]["message"]["content"]
+                
+                # 清理可能的 Markdown 代码块包裹
+                fixed_content = self._clean_markdown_wrapper(fixed_content)
+                
+                return fixed_content
+                
+        except httpx.TimeoutException:
+            raise HTTPException(status_code=504, detail="LLM request timeout")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"LLM error: {str(e)}")
+
+    def _build_fix_prompt(
+        self,
+        original_content: str,
+        issue_id: str,
+        issue_description: str,
+        custom_instruction: Optional[str]
+    ) -> str:
+        """构建修复文档的 Prompt"""
+        prompt = f"""请修复以下文档中的问题。
+
+        ## 问题信息
+        - 问题ID: {issue_id}
+        - 问题描述: {issue_description}
+
+        ## 原始文档内容
+        ```markdown
+        {original_content}
+        ```
+        ## 修复要求
+        1. 保持原有内容的风格和格式
+
+        2. 只针对上述问题进行修复或补充
+
+        3. 返回修复后的完整文档"""
+
+        if custom_instruction:
+            prompt += f"\n## 用户额外要求\n{custom_instruction}\n"
+        
+        return prompt
+    
+    def _clean_markdown_wrapper(self, content: str) -> str:
+        """清理可能的 Markdown 代码块包裹"""
+        if content.startswith("```markdown") and content.endswith("```"):
+            return "\n".join(content.split("\n")[1:-1]).strip()
+        return content.strip()
+
